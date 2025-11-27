@@ -49,7 +49,7 @@ const renderer = new THREE.WebGLRenderer({
 });
 renderer.setSize(window.innerWidth, window.innerHeight);
 
-// OTIMIZAÇÃO: Menor PixelRatio no Mobile para ganhar FPS
+// OTIMIZAÇÃO: Menor PixelRatio no Mobile
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobile ? 1.0 : 1.5)); 
 
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -63,7 +63,7 @@ const renderPass = new RenderPass(scene, camera);
 composer.addPass(renderPass);
 
 // OTIMIZAÇÃO: Bloom ajustado para Mobile
-const bloomStrength = isMobile ? 0.2 : 0.35; // Menos brilho no mobile
+const bloomStrength = isMobile ? 0.2 : 0.35; 
 const bloomRadius = isMobile ? 0.3 : 0.5;
 
 const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
@@ -75,17 +75,17 @@ composer.addPass(bloomPass);
 const outputPass = new OutputPass(); 
 composer.addPass(outputPass); 
 
-// --- 4. ÁUDIO INTERATIVO ---
-const hoverSound = new Audio('./assets/chime.mp3'); 
+// --- 4. ÁUDIO INTERATIVO (CORRIGIDO PARA 'Assets') ---
+// Atenção: Caminho com 'A' maiúsculo para funcionar no GitHub
+const hoverSound = new Audio('Assets/chime.mp3'); 
 hoverSound.volume = 0.2; 
 
 function playRandomChime() {
-    // Verifica se o usuário interagiu antes de tentar tocar (Política de browsers)
     if(!hoverSound.paused) {
         hoverSound.currentTime = 0; 
     }
     hoverSound.playbackRate = 0.8 + Math.random() * 0.4; 
-    hoverSound.play().catch(() => {}); // Catch para evitar erro se não houve interação
+    hoverSound.play().catch(() => {}); 
 }
 
 // --- 5. ILUMINAÇÃO ---
@@ -205,9 +205,9 @@ function createFacetedBauble(pos, scale, baseMat) {
     return group;
 }
 
-// --- CARREGAMENTO ---
-// Mude de 'assets/env.hdr' para:
-envMapLoader.load('./assets/env.hdr', function (texture) {
+// --- CARREGAMENTO (CORRIGIDO PARA 'Assets') ---
+// Atenção: Caminho com 'A' maiúsculo
+envMapLoader.load('Assets/env.hdr', function (texture) {
     envMap = texture; envMap.mapping = THREE.EquirectangularReflectionMapping; scene.environment = envMap; scene.environmentRotation = new THREE.Euler(0,0,0); 
     const heroBauble = createFacetedBauble(new THREE.Vector3(0, -2.5, -2), 3.2, customGoldMaterial); 
     heroBauble.add(new THREE.Mesh(new THREE.IcosahedronGeometry(0.85, 4), haloMaterial));
@@ -512,7 +512,7 @@ function initScrollAnimations() {
     });
 }
 
-// LOGICA DE SOM (CORRIGIDA)
+// LOGICA DE SOM
 const sb = document.getElementById('sound-btn'); 
 const am = document.getElementById('ambient-music'); 
 let ip = false;
@@ -553,3 +553,44 @@ if (cr && fl) {
         el.addEventListener('mouseleave', () => { document.body.classList.remove('cursor-hover'); }); 
     });
 }
+
+// --- SUPORTE A TOQUE (MOBILE) ---
+// Adiciona interação de toque para dispositivos móveis
+window.addEventListener('touchstart', (e) => {
+    // 1. Converter toque em coordenadas de mouse
+    const touch = e.touches[0];
+    mouseVector.x = (touch.clientX / window.innerWidth) * 2 - 1;
+    mouseVector.y = -(touch.clientY / window.innerHeight) * 2 + 1;
+
+    // 2. Forçar verificação do Raycaster imediatamente
+    raycaster.setFromCamera(mouseVector, camera);
+    const intersects = raycaster.intersectObjects(mainGroup.children, true);
+
+    // 3. Se tocou em algo, ativar animação e som
+    if (intersects.length > 0) {
+        // Encontra o grupo pai (o objeto inteiro, não só a geometria)
+        let object = intersects[0].object;
+        while(object.parent && object.parent !== mainGroup) {
+            object = object.parent;
+        }
+
+        // Simula o "Hover"
+        if (object.userData && object.userData.type) {
+            // Toca o som
+            playRandomChime();
+            
+            // Dá um "impulso" na rotação para feedback visual
+            gsap.to(object.rotation, {
+                y: object.rotation.y + 2, // Gira rápido
+                duration: 1.5,
+                ease: "elastic.out(1, 0.3)"
+            });
+            
+            // Feedback de escala (pulsa)
+            gsap.fromTo(object.scale, 
+                { x: 1.3, y: 1.3, z: 1.3 }, 
+                { x: 1.0, y: 1.0, z: 1.0, duration: 1.0, ease: "elastic.out(1, 0.5)" }
+            );
+        }
+    }
+}, { passive: false });
