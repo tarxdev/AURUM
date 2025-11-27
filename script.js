@@ -206,7 +206,8 @@ function createFacetedBauble(pos, scale, baseMat) {
 }
 
 // --- CARREGAMENTO ---
-envMapLoader.load('assets/env.hdr', function (texture) {
+// Mude de 'assets/env.hdr' para:
+envMapLoader.load('./assets/env.hdr', function (texture) {
     envMap = texture; envMap.mapping = THREE.EquirectangularReflectionMapping; scene.environment = envMap; scene.environmentRotation = new THREE.Euler(0,0,0); 
     const heroBauble = createFacetedBauble(new THREE.Vector3(0, -2.5, -2), 3.2, customGoldMaterial); 
     heroBauble.add(new THREE.Mesh(new THREE.IcosahedronGeometry(0.85, 4), haloMaterial));
