@@ -10,7 +10,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 let scrollSpeed = 0; 
 let frameCount = 0; 
 
-// --- OTIMIZAÇÃO: DETECTAR MOBILE ---
+// --- DETECTAR MOBILE ---
 const isMobile = window.innerWidth < 768;
 
 // --- 1. SETUP LENIS (SCROLL SUAVE) ---
@@ -43,40 +43,48 @@ camera.position.set(0, 0, 18);
 
 const renderer = new THREE.WebGLRenderer({ 
     canvas: document.querySelector('#webgl'), 
-    antialias: false, 
+    antialias: false, // Antialias false no PC também para ganhar FPS (o Bloom disfarça o serrilhado)
     alpha: false,
-    powerPreference: "high-performance"
+    powerPreference: "high-performance",
+    stencil: false,
+    depth: true
 });
 renderer.setSize(window.innerWidth, window.innerHeight);
 
-// OTIMIZAÇÃO: Menor PixelRatio no Mobile
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobile ? 1.0 : 1.5)); 
+// --- OTIMIZAÇÃO FINA (PC & MOBILE) ---
+// No PC, travamos em 1.15. Monitores 4K/Retina rodam suave sem queimar a GPU.
+renderer.setPixelRatio(isMobile ? 1.0 : Math.min(window.devicePixelRatio, 1.15)); 
 
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0; 
-renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-// --- 3. POST-PROCESSING ---
-const composer = new EffectComposer(renderer);
-const renderPass = new RenderPass(scene, camera);
-composer.addPass(renderPass);
+// Sombras ativas no PC
+renderer.shadowMap.enabled = !isMobile;
+if (!isMobile) {
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+}
 
-// OTIMIZAÇÃO: Bloom ajustado para Mobile
-const bloomStrength = isMobile ? 0.2 : 0.35; 
-const bloomRadius = isMobile ? 0.3 : 0.5;
+// --- 3. POST-PROCESSING (BLOOM MANTIDO NO PC) ---
+let composer = null;
+let bloomPass = null;
 
-const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
-bloomPass.threshold = 0.85; 
-bloomPass.strength = bloomStrength; 
-bloomPass.radius = bloomRadius;    
-composer.addPass(bloomPass);
+if (!isMobile) {
+    composer = new EffectComposer(renderer);
+    const renderPass = new RenderPass(scene, camera);
+    composer.addPass(renderPass);
 
-const outputPass = new OutputPass(); 
-composer.addPass(outputPass); 
+    // Bloom levemente ajustado para performance
+    bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
+    bloomPass.threshold = 0.85; 
+    bloomPass.strength = 0.35; 
+    bloomPass.radius = 0.5;    
+    composer.addPass(bloomPass);
 
-// --- 4. ÁUDIO INTERATIVO (CORRIGIDO PARA 'Assets') ---
-// Atenção: Caminho com 'A' maiúsculo para funcionar no GitHub
+    const outputPass = new OutputPass(); 
+    composer.addPass(outputPass); 
+}
+
+// --- 4. ÁUDIO INTERATIVO ---
 const hoverSound = new Audio('Assets/chime.mp3'); 
 hoverSound.volume = 0.2; 
 
@@ -96,10 +104,14 @@ const spotLight = new THREE.SpotLight(0xffeebb, 800);
 spotLight.position.set(15, 25, 15); 
 spotLight.angle = 0.4; 
 spotLight.penumbra = 1; 
-spotLight.castShadow = true;
-spotLight.shadow.mapSize.width = 1024; 
-spotLight.shadow.mapSize.height = 1024; 
-spotLight.shadow.bias = -0.0001; 
+
+// OTIMIZAÇÃO: Mapa de sombra reduzido (512 vs 1024) - Quase imperceptível, muito mais leve
+spotLight.castShadow = !isMobile;
+if (!isMobile) {
+    spotLight.shadow.mapSize.width = 512; 
+    spotLight.shadow.mapSize.height = 512; 
+    spotLight.shadow.bias = -0.0001; 
+}
 scene.add(spotLight);
 
 const spotLightTarget = new THREE.Object3D(); 
@@ -107,16 +119,15 @@ spotLightTarget.position.set(0, 0, 0);
 scene.add(spotLightTarget); 
 spotLight.target = spotLightTarget; 
 
-const blueRim = new THREE.PointLight(0x0044ff, 100); 
+const blueRim = new THREE.PointLight(0x0044ff, isMobile ? 50 : 100); 
 blueRim.position.set(-10, 0, -10); 
 scene.add(blueRim);
 
-const goldFill = new THREE.PointLight(0xffaa00, 60); 
+const goldFill = new THREE.PointLight(0xffaa00, isMobile ? 30 : 60); 
 goldFill.position.set(10, -5, 5); 
 scene.add(goldFill);
 
 // --- 6. SHADERS & MATERIAIS ---
-
 function getSoftGlowTexture() {
     const canvas = document.createElement('canvas');
     canvas.width = 32; canvas.height = 32;
@@ -160,9 +171,10 @@ const dustMaterial = new THREE.ShaderMaterial({ vertexShader: dustVertexShader, 
 // --- MATERIAIS PADRÃO ---
 const envMapLoader = new RGBELoader();
 let envMap;
-const goldPolished = new THREE.MeshPhysicalMaterial({ color: 0xffd700, metalness: 1.0, roughness: 0.1, clearcoat: 1.0, envMapIntensity: 3.0 });
-const goldBrushed = new THREE.MeshPhysicalMaterial({ color: 0xaa8800, metalness: 1.0, roughness: 0.65, envMapIntensity: 1.5 });
-const crystalMat = new THREE.MeshPhysicalMaterial({ color: 0xffffff, metalness: 0.1, roughness: 0.0, transmission: 1.0, thickness: 2.5, ior: 1.8, envMapIntensity: 4.0 });
+// Materiais iguais, apenas ajustando envMapIntensity para equilíbrio
+const goldPolished = new THREE.MeshPhysicalMaterial({ color: 0xffd700, metalness: 1.0, roughness: 0.1, clearcoat: 1.0, envMapIntensity: isMobile ? 1.0 : 2.5 });
+const goldBrushed = new THREE.MeshPhysicalMaterial({ color: 0xaa8800, metalness: 1.0, roughness: 0.65, envMapIntensity: isMobile ? 0.8 : 1.2 });
+const crystalMat = new THREE.MeshPhysicalMaterial({ color: 0xffffff, metalness: 0.1, roughness: 0.0, transmission: 1.0, thickness: 2.5, ior: 1.8, envMapIntensity: isMobile ? 2.0 : 3.5 });
 const lightCoreMat = new THREE.MeshBasicMaterial({ color: 0xffaa00, transparent: true, opacity: 1.0 });
 const mainGroup = new THREE.Group(); 
 scene.add(mainGroup);
@@ -173,44 +185,65 @@ raysMesh.position.set(15, 25, 15); raysMesh.rotation.x = Math.PI / 2; scene.add(
 const floorMesh = new THREE.Mesh(new THREE.PlaneGeometry(100, 40), causticsMaterial);
 floorMesh.rotation.x = -Math.PI / 2; floorMesh.position.y = -10; scene.add(floorMesh);
 
+// OTIMIZAÇÃO: Segmentos equilibrados para PC (não precisa de 64, 48 é suficiente)
+const getSegments = (high, low) => isMobile ? low : (high * 0.8); 
+
 function createLuxuryBell(pos, scale) {
     const group = new THREE.Group(); group.position.copy(pos); group.scale.set(scale, scale, scale);
     const hitbox = new THREE.Mesh(new THREE.SphereGeometry(1.2), new THREE.MeshBasicMaterial({visible:false})); group.add(hitbox); group.userData.hitbox = hitbox;
+    
+    // Segmentos ajustados
+    const latheSegs = isMobile ? 32 : 48; // Era 64
+    const torusTubeSegs = isMobile ? 4 : 6; // Era 8
+    const torusRadialSegs = isMobile ? 32 : 48; // Era 64
+    
     const points = []; for (let i = 0; i < 10; i++) points.push(new THREE.Vector2(Math.sin(i * 0.2) * 0.5 + 0.3, (i - 5) * 0.2)); points.push(new THREE.Vector2(1.0, -1.2)); points.push(new THREE.Vector2(1.1, -1.3)); points.push(new THREE.Vector2(0.9, -1.3));
-    const bell = new THREE.Mesh(new THREE.LatheGeometry(points, 64), goldBrushed); group.add(bell);
-    const handle = new THREE.Mesh(new THREE.TorusKnotGeometry(0.25, 0.05, 64, 8, 2, 3), goldPolished); handle.position.y = 1.0; group.add(handle);
+    const bell = new THREE.Mesh(new THREE.LatheGeometry(points, latheSegs), goldBrushed); group.add(bell);
+    const handle = new THREE.Mesh(new THREE.TorusKnotGeometry(0.25, 0.05, torusRadialSegs, torusTubeSegs, 2, 3), goldPolished); handle.position.y = 1.0; group.add(handle);
     const clapper = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.5, 16).translate(0, -0.25, 0), crystalMat); clapper.add(new THREE.Mesh(new THREE.SphereGeometry(0.2), crystalMat)); clapper.children[0].position.y = 0.25; clapper.position.y = -0.8; group.add(clapper);
     group.userData.rotateSpeed = (Math.random() * 0.01) + 0.005; group.userData.initialY = pos.y; group.userData.clapper = clapper; group.userData.type = 'bell'; 
     return group;
 }
+
 function createCrystalStar(pos, scale) {
     const group = new THREE.Group(); group.position.copy(pos); group.scale.set(scale, scale, scale);
     const hitbox = new THREE.Mesh(new THREE.SphereGeometry(1.3), new THREE.MeshBasicMaterial({visible:false})); group.add(hitbox); group.userData.hitbox = hitbox;
-    const core = new THREE.Mesh(new THREE.IcosahedronGeometry(0.7, 1), crystalMat); group.add(core);
-    const wire = new THREE.Mesh(new THREE.IcosahedronGeometry(0.8, 1), goldPolished.clone()); wire.material.wireframe = true; group.add(wire);
+    
+    // Low poly core
+    const core = new THREE.Mesh(new THREE.IcosahedronGeometry(0.7, 0), crystalMat); group.add(core);
+    const wire = new THREE.Mesh(new THREE.IcosahedronGeometry(0.8, 0), goldPolished.clone()); wire.material.wireframe = true; group.add(wire);
+    
     const spikeGeo = new THREE.ConeGeometry(0.1, 2.2, 8); const directions = new THREE.IcosahedronGeometry(1,0).attributes.position.array;
     for (let i = 0; i < directions.length; i += 3) { const dir = new THREE.Vector3(directions[i], directions[i+1], directions[i+2]).normalize(); const mat = (i % 2 === 0) ? crystalMat : goldPolished; const spike = new THREE.Mesh(spikeGeo, mat); spike.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir); spike.position.copy(dir.multiplyScalar(0.7)); group.add(spike); }
     core.add(new THREE.Mesh(new THREE.SphereGeometry(0.3), lightCoreMat));
     group.userData.rotateSpeed = (Math.random() * 0.015) + 0.005; group.userData.initialY = pos.y; group.userData.type = 'star';
     return group;
 }
+
 function createFacetedBauble(pos, scale, baseMat) {
     const group = new THREE.Group(); group.position.copy(pos); group.scale.set(scale, scale, scale);
     const hitbox = new THREE.Mesh(new THREE.SphereGeometry(1.2), new THREE.MeshBasicMaterial({visible:false})); group.add(hitbox); group.userData.hitbox = hitbox;
-    const sphere = new THREE.Mesh(new THREE.IcosahedronGeometry(0.75, 8), baseMat); sphere.castShadow = true; sphere.receiveShadow = true; group.add(sphere);
-    const cage = new THREE.Mesh(new THREE.IcosahedronGeometry(0.95, 2), goldPolished.clone()); cage.material.wireframe = true; group.add(cage);
-    const ringGeo = new THREE.TorusGeometry(1.1, 0.015, 16, 64); const ring1 = new THREE.Mesh(ringGeo, goldPolished); ring1.rotation.x = Math.PI / 2; group.add(ring1); const ring2 = new THREE.Mesh(ringGeo, goldPolished); ring2.rotation.y = Math.PI / 2.5; group.add(ring2);
+    
+    // Otimização de segmentos
+    const icoDetail = isMobile ? 0 : 4; // Era 8
+    const cageDetail = isMobile ? 0 : 1; // Era 2
+    const ringRadial = isMobile ? 32 : 48; // Era 64
+    
+    const sphere = new THREE.Mesh(new THREE.IcosahedronGeometry(0.75, icoDetail), baseMat); 
+    sphere.castShadow = !isMobile; sphere.receiveShadow = !isMobile; group.add(sphere);
+    
+    const cage = new THREE.Mesh(new THREE.IcosahedronGeometry(0.95, cageDetail), goldPolished.clone()); cage.material.wireframe = true; group.add(cage);
+    const ringGeo = new THREE.TorusGeometry(1.1, 0.015, 16, ringRadial); const ring1 = new THREE.Mesh(ringGeo, goldPolished); ring1.rotation.x = Math.PI / 2; group.add(ring1); const ring2 = new THREE.Mesh(ringGeo, goldPolished); ring2.rotation.y = Math.PI / 2.5; group.add(ring2);
     const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.20, 0.25, 16), goldPolished); cap.position.y = 0.85; group.add(cap); const hook = new THREE.Mesh(new THREE.TorusGeometry(0.08, 0.02, 8, 16), goldPolished); hook.position.y = 1.0; hook.rotation.y = Math.PI / 2; group.add(hook);
     group.userData.rotateSpeed = (Math.random() * 0.005) + 0.002; group.userData.initialY = pos.y; group.userData.rings = [cage, ring1, ring2]; group.userData.type = 'bauble';
     return group;
 }
 
-// --- CARREGAMENTO (CORRIGIDO PARA 'Assets') ---
-// Atenção: Caminho com 'A' maiúsculo
+// --- CARREGAMENTO ---
 envMapLoader.load('Assets/env.hdr', function (texture) {
     envMap = texture; envMap.mapping = THREE.EquirectangularReflectionMapping; scene.environment = envMap; scene.environmentRotation = new THREE.Euler(0,0,0); 
     const heroBauble = createFacetedBauble(new THREE.Vector3(0, -2.5, -2), 3.2, customGoldMaterial); 
-    heroBauble.add(new THREE.Mesh(new THREE.IcosahedronGeometry(0.85, 4), haloMaterial));
+    heroBauble.add(new THREE.Mesh(new THREE.IcosahedronGeometry(0.85, 2), haloMaterial));
     mainGroup.add(heroBauble);
     const star1 = createCrystalStar(new THREE.Vector3(-6, 5, -4), 1.7); mainGroup.add(star1);
     const bell1 = createLuxuryBell(new THREE.Vector3(8, -2, -2), 1.5); mainGroup.add(bell1);
@@ -225,8 +258,8 @@ envMapLoader.load('Assets/env.hdr', function (texture) {
 
 // --- PARTICULAS DE FUNDO (OTIMIZADO) ---
 const pGeo = new THREE.BufferGeometry(); 
-// OTIMIZAÇÃO: Menos partículas no mobile
-const pCount = isMobile ? 800 : 3000; 
+// OTIMIZAÇÃO: 1800 é um bom meio termo para PC (era 3000)
+const pCount = isMobile ? 150 : 1800; 
 const pPos = new Float32Array(pCount * 3); 
 const pOriginalPos = new Float32Array(pCount * 3); 
 const pVel = []; 
@@ -240,35 +273,40 @@ pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3));
 const particles = new THREE.Points(pGeo, dustMaterial); scene.add(particles);
 
 // --- RASTRO MINIMALISTA ---
-const trailCount = isMobile ? 30 : 60; // Reduz rastro no mobile
-const trailGeo = new THREE.BufferGeometry();
-const trailPos = new Float32Array(trailCount * 3);
-const trailSizes = new Float32Array(trailCount);
-trailGeo.setAttribute('position', new THREE.BufferAttribute(trailPos, 3));
-trailGeo.setAttribute('size', new THREE.BufferAttribute(trailSizes, 1));
+const trailCount = isMobile ? 0 : 50; // Leve redução (era 60)
+let trail = null;
+let trailPos, trailSizes, trailData;
 
-const trailMat = new THREE.PointsMaterial({
-    color: 0xffeebb, 
-    map: getSoftGlowTexture(),
-    transparent: true,
-    opacity: 0.5,
-    sizeAttenuation: true,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false
-});
-const trail = new THREE.Points(trailGeo, trailMat);
-scene.add(trail);
+if (!isMobile) {
+    const trailGeo = new THREE.BufferGeometry();
+    trailPos = new Float32Array(trailCount * 3);
+    trailSizes = new Float32Array(trailCount);
+    trailGeo.setAttribute('position', new THREE.BufferAttribute(trailPos, 3));
+    trailGeo.setAttribute('size', new THREE.BufferAttribute(trailSizes, 1));
 
-const trailData = [];
-for(let i=0; i<trailCount; i++) {
-    trailData.push({
-        vx: (Math.random() - 0.5) * 0.01, 
-        vy: (Math.random() - 0.5) * 0.01,
-        vz: (Math.random() - 0.5) * 0.01,
-        life: 0, 
-        maxLife: 0.5 + Math.random() * 0.5 
+    const trailMat = new THREE.PointsMaterial({
+        color: 0xffeebb, 
+        map: getSoftGlowTexture(),
+        transparent: true,
+        opacity: 0.5,
+        sizeAttenuation: true,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false
     });
-    trailPos[i*3] = 9999;
+    trail = new THREE.Points(trailGeo, trailMat);
+    scene.add(trail);
+
+    trailData = [];
+    for(let i=0; i<trailCount; i++) {
+        trailData.push({
+            vx: (Math.random() - 0.5) * 0.01, 
+            vy: (Math.random() - 0.5) * 0.01,
+            vz: (Math.random() - 0.5) * 0.01,
+            life: 0, 
+            maxLife: 0.5 + Math.random() * 0.5 
+        });
+        trailPos[i*3] = 9999;
+    }
 }
 
 // --- LOOP & LÓGICA DE INTERAÇÃO ---
@@ -284,7 +322,6 @@ window.addEventListener('mousemove', (e) => {
     mouseVector.y = -(e.clientY / window.innerHeight) * 2 + 1; 
 });
 
-// GIROSCÓPIO MOBILE
 if (isMobile && window.DeviceOrientationEvent) {
     window.addEventListener("deviceorientation", (event) => {
         const tiltX = (event.gamma || 0) / 45; 
@@ -355,19 +392,22 @@ function animate() {
         pPosArr[iy] += scrollSpeed * 0.005; 
         pPosArr[ix] += Math.sin(time * turbulence + pPosArr[iy] * 0.05) * 0.005; 
         
-        const dx = mouseWorldX - pPosArr[ix]; 
-        const dy = mouseWorldY - pPosArr[iy]; 
-        const distSq = dx*dx + dy*dy; 
-        
-        if (distSq < 16.0) { 
-            const dist = Math.sqrt(distSq);
-            const force = (4.0 - dist) / 4.0; 
-            const angle = Math.atan2(dy, dx); 
-            pPosArr[ix] -= Math.cos(angle) * force * 0.5; 
-            pPosArr[iy] -= Math.sin(angle) * force * 0.5; 
-        } else { 
-            pPosArr[ix] += (pOriginalPos[ix] - pPosArr[ix]) * 0.02; 
-            pPosArr[iz] += (pOriginalPos[iz] - pPosArr[iz]) * 0.02; 
+        // Raycaster throttle para poupar CPU
+        if (!isMobile || frameCount % 3 === 0) {
+            const dx = mouseWorldX - pPosArr[ix]; 
+            const dy = mouseWorldY - pPosArr[iy]; 
+            const distSq = dx*dx + dy*dy; 
+            
+            if (distSq < 16.0) { 
+                const dist = Math.sqrt(distSq);
+                const force = (4.0 - dist) / 4.0; 
+                const angle = Math.atan2(dy, dx); 
+                pPosArr[ix] -= Math.cos(angle) * force * 0.5; 
+                pPosArr[iy] -= Math.sin(angle) * force * 0.5; 
+            } else { 
+                pPosArr[ix] += (pOriginalPos[ix] - pPosArr[ix]) * 0.02; 
+                pPosArr[iz] += (pOriginalPos[iz] - pPosArr[iz]) * 0.02; 
+            }
         }
         
         if (pPosArr[iy] < -35) { 
@@ -378,41 +418,45 @@ function animate() {
     }
     particles.geometry.attributes.position.needsUpdate = true;
 
-    // --- LOGICA RASTRO MINIMALISTA ---
-    raycaster.setFromCamera(mouseVector, camera);
-    const trailPoint = new THREE.Vector3();
-    raycaster.ray.at(15, trailPoint); 
+    // --- LOGICA RASTRO (Desktop) ---
+    if (!isMobile && trail) {
+        raycaster.setFromCamera(mouseVector, camera);
+        const trailPoint = new THREE.Vector3();
+        raycaster.ray.at(15, trailPoint); 
 
-    let particlesSpawned = 0;
-    
-    for(let i=0; i<trailCount; i++) {
-        if (trailData[i].life <= 0 && particlesSpawned < 2) { 
-            trailData[i].life = trailData[i].maxLife;
-            
-            trailPos[i*3] = trailPoint.x + (Math.random()-0.5)*0.05;
-            trailPos[i*3+1] = trailPoint.y + (Math.random()-0.5)*0.05;
-            trailPos[i*3+2] = trailPoint.z + (Math.random()-0.5)*0.05;
-            particlesSpawned++;
+        let particlesSpawned = 0;
+        
+        for(let i=0; i<trailCount; i++) {
+            if (trailData[i].life <= 0 && particlesSpawned < 2) { 
+                trailData[i].life = trailData[i].maxLife;
+                
+                trailPos[i*3] = trailPoint.x + (Math.random()-0.5)*0.05;
+                trailPos[i*3+1] = trailPoint.y + (Math.random()-0.5)*0.05;
+                trailPos[i*3+2] = trailPoint.z + (Math.random()-0.5)*0.05;
+                particlesSpawned++;
+            }
+
+            if (trailData[i].life > 0) {
+                trailData[i].life -= 0.02; 
+                trailPos[i*3] += trailData[i].vx;
+                trailPos[i*3+1] += trailData[i].vy; 
+                trailPos[i*3+2] += trailData[i].vz;
+
+                const normLife = trailData[i].life / trailData[i].maxLife;
+                
+                trailSizes[i] = Math.sin(normLife * Math.PI) * 0.15; 
+            } else {
+                trailSizes[i] = 0; 
+            }
         }
-
-        if (trailData[i].life > 0) {
-            trailData[i].life -= 0.02; 
-            trailPos[i*3] += trailData[i].vx;
-            trailPos[i*3+1] += trailData[i].vy; 
-            trailPos[i*3+2] += trailData[i].vz;
-
-            const normLife = trailData[i].life / trailData[i].maxLife;
-            
-            trailSizes[i] = Math.sin(normLife * Math.PI) * 0.15; 
-        } else {
-            trailSizes[i] = 0; 
-        }
+        trail.geometry.attributes.position.needsUpdate = true;
+        trail.geometry.attributes.size.needsUpdate = true;
     }
-    trail.geometry.attributes.position.needsUpdate = true;
-    trail.geometry.attributes.size.needsUpdate = true;
 
-    // Raycaster Otimizado + SOM
-    if (frameCount % 5 === 0) {
+    // Raycaster Otimizado
+    // Rodar a cada 5 frames no Desktop (imperceptível) e 20 no mobile
+    const raycastFreq = isMobile ? 20 : 5;
+    if (frameCount % raycastFreq === 0) {
         raycaster.setFromCamera(mouseVector, camera); 
         currentIntersects = raycaster.intersectObjects(mainGroup.children, true);
     }
@@ -464,7 +508,12 @@ function animate() {
         });
     }
     
-    composer.render();
+    // RENDER FINAL OTIMIZADO
+    if (isMobile) {
+        renderer.render(scene, camera);
+    } else if (composer) {
+        composer.render();
+    }
 }
 animate();
 
@@ -472,8 +521,10 @@ window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth/window.innerHeight; 
     camera.updateProjectionMatrix(); 
     renderer.setSize(window.innerWidth, window.innerHeight); 
-    composer.setSize(window.innerWidth, window.innerHeight); 
-    bloomPass.resolution.set(window.innerWidth, window.innerHeight); 
+    if(composer && !isMobile) {
+        composer.setSize(window.innerWidth, window.innerHeight); 
+        if(bloomPass) bloomPass.resolution.set(window.innerWidth, window.innerHeight); 
+    }
 });
 
 function splitTextIntoSpans(s) { document.querySelectorAll(s).forEach(el => { const t = el.innerText; el.innerHTML = ''; t.split('').forEach(c => { const span = document.createElement('span'); span.innerHTML = c === ' ' ? '&nbsp;' : c; el.appendChild(span); }); }); }
@@ -542,7 +593,7 @@ if (sb && am) {
 // CURSOR CUSTOMIZADO (LÓGICA JS)
 const cr = document.querySelector('.custom-cursor'); 
 const fl = document.querySelector('.cursor-follower');
-if (cr && fl) {
+if (cr && fl && !isMobile) {
     window.addEventListener('mousemove', (e) => { 
         gsap.to(cr, { x: e.clientX, y: e.clientY, duration: 0 }); 
         gsap.to(fl, { x: e.clientX, y: e.clientY, duration: 0.5, ease: "power2.out" }); 
@@ -555,38 +606,27 @@ if (cr && fl) {
 }
 
 // --- SUPORTE A TOQUE (MOBILE) ---
-// Adiciona interação de toque para dispositivos móveis
 window.addEventListener('touchstart', (e) => {
-    // 1. Converter toque em coordenadas de mouse
     const touch = e.touches[0];
     mouseVector.x = (touch.clientX / window.innerWidth) * 2 - 1;
     mouseVector.y = -(touch.clientY / window.innerHeight) * 2 + 1;
 
-    // 2. Forçar verificação do Raycaster imediatamente
     raycaster.setFromCamera(mouseVector, camera);
     const intersects = raycaster.intersectObjects(mainGroup.children, true);
 
-    // 3. Se tocou em algo, ativar animação e som
     if (intersects.length > 0) {
-        // Encontra o grupo pai (o objeto inteiro, não só a geometria)
         let object = intersects[0].object;
         while(object.parent && object.parent !== mainGroup) {
             object = object.parent;
         }
 
-        // Simula o "Hover"
         if (object.userData && object.userData.type) {
-            // Toca o som
             playRandomChime();
-            
-            // Dá um "impulso" na rotação para feedback visual
             gsap.to(object.rotation, {
-                y: object.rotation.y + 2, // Gira rápido
+                y: object.rotation.y + 2, 
                 duration: 1.5,
                 ease: "elastic.out(1, 0.3)"
             });
-            
-            // Feedback de escala (pulsa)
             gsap.fromTo(object.scale, 
                 { x: 1.3, y: 1.3, z: 1.3 }, 
                 { x: 1.0, y: 1.0, z: 1.0, duration: 1.0, ease: "elastic.out(1, 0.5)" }

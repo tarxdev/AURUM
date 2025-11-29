@@ -505,35 +505,6 @@ body {
     to { opacity: 1; transform: translateY(0); }
 }
 
-
-/* --- RESPONSIVIDADE (CELULAR) --- */
-@media (max-width: 768px) {
-    html { font-size: 12vw; }
-    
-    /* Reabilita o cursor nativo no mobile */
-    body { cursor: auto; }
-    .custom-cursor, .cursor-follower { display: none; }
-
-    .hero .title-block .title-h1 { line-height: 1.2; }
-    .row-right { text-align: left; justify-content: flex-start; }
-    
-    .quote-container blockquote { font-size: 0.4rem; }
-    
-    .visual-finale {
-        grid-template-columns: 1fr;
-        padding: 5vh 1rem 5vh 1rem;
-        gap: 2rem;
-    }
-    .finale-img-container { aspect-ratio: 3 / 4; }
-    .editorial-section p { max-width: 100%; }
-
-    .immersive-footer { min-height: 60vh; }
-    .footer-logo { font-size: 1.2rem; } 
-    .footer-quote { font-size: 0.8rem; padding: 0 20px;}
-    .restart-btn { font-size: 0.7rem; }
-}
-
-
 /* --- UTILITÁRIOS --- */
 .sound-toggle {
     display: flex; align-items: center; gap: 10px; cursor: pointer;
@@ -617,24 +588,67 @@ body { -ms-overflow-style: none; }
     margin-top: 10px;
 }
 
-/* Ajuste Mobile: Esconder a barra lateral e mostrar no Footer ou simplificar */
+/* --- RESPONSIVIDADE (CELULAR - OTIMIZAÇÃO CSS) --- */
 @media (max-width: 768px) {
+    html { font-size: 12vw; }
+    
+    /* Reabilita o cursor nativo no mobile e previne bugs de toque */
+    body { cursor: auto !important; }
+    
+    /* Remove elementos pesados */
+    .custom-cursor, .cursor-follower, .noise-overlay { display: none !important; }
+
+    /* Ajustes de Layout */
+    .hero .title-block .title-h1 { line-height: 1.2; text-shadow: 0 5px 15px rgba(0,0,0,0.5); }
+    .row-right { text-align: left; justify-content: flex-start; }
+    .quote-container blockquote { font-size: 0.4rem; }
+    
+    .visual-finale {
+        grid-template-columns: 1fr;
+        padding: 5vh 1rem 5vh 1rem;
+        gap: 2rem;
+    }
+    .finale-img-container { aspect-ratio: 3 / 4; }
+    .editorial-section p { max-width: 100%; }
+
+    .immersive-footer { min-height: 60vh; }
+    .footer-logo { font-size: 1.2rem; } 
+    .footer-quote { font-size: 0.8rem; padding: 0 20px;}
+    .restart-btn { font-size: 0.7rem; }
+    
+    /* Barra lateral */
     .social-sidebar {
         left: 20px;
         bottom: 20px;
         padding-bottom: 0;
-        flex-direction: row; /* Vira horizontal no celular */
+        flex-direction: row; 
     }
-    .social-line {
-        display: none; /* Remove a linha no celular */
+    .social-line { display: none; }
+
+    /* PERFORMANCE CRÍTICA: Remove filtros pesados no scroll */
+    .editorial-section h2 span,
+    .editorial-section p,
+    .quote-container,
+    .finale-img-container,
+    .finale-img {
+        filter: none !important; 
+        will-change: opacity, transform; 
     }
 }
+
 /* --- CORREÇÃO DO CURSOR EM TODOS OS ELEMENTOS CLICÁVEIS --- */
 a, 
 button, 
 .restart-btn, 
 .social-icon, 
 .finale-img-container,
-.sound-toggle { /* <--- Adicionado o botão de som aqui */
+.sound-toggle { 
     cursor: none !important; 
+}
+
+/* Retorno do cursor padrão no mobile */
+@media (max-width: 768px) {
+    a, button, .restart-btn, .social-icon, .finale-img-container, .sound-toggle {
+        cursor: pointer !important;
+    }
 }
